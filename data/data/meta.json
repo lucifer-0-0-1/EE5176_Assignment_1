@@ -1,0 +1,87 @@
+{
+  "cfa_codes": {
+    "1": "R",
+    "2": "G",
+    "3": "B"
+  },
+  "images": {
+    "rawimage1": {
+      "pattern": "rggb",
+      "mask": "bayer1",
+      "shape": [
+        1128,
+        2048
+      ],
+      "mask_matches_pattern": true
+    },
+    "rawimage2": {
+      "pattern": "grbg",
+      "mask": "bayer2",
+      "shape": [
+        1000,
+        2000
+      ],
+      "mask_matches_pattern": true
+    },
+    "rawimage3": {
+      "pattern": "rggb",
+      "mask": "bayer3",
+      "shape": [
+        1124,
+        2028
+      ],
+      "mask_matches_pattern": true
+    },
+    "kodim19": {
+      "pattern": "rggb",
+      "mask": "kodim19_cfa",
+      "shape": [
+        768,
+        512
+      ],
+      "mask_matches_pattern": true
+    }
+  },
+  "white_balance_points": {
+    "specular": {
+      "rawimage1": [
+        813,
+        829
+      ],
+      "rawimage2": [
+        279,
+        1164
+      ],
+      "rawimage3": [
+        674,
+        174
+      ]
+    },
+    "neutral": {
+      "rawimage1": [
+        434,
+        1999
+      ],
+      "rawimage2": [
+        714,
+        444
+      ],
+      "rawimage3": [
+        564,
+        1549
+      ]
+    }
+  },
+  "noise_patch": {
+    "rawimage2": {
+      "top_left": [
+        704,
+        923
+      ],
+      "bottom_right": [
+        764,
+        983
+      ]
+    }
+  }
+}
