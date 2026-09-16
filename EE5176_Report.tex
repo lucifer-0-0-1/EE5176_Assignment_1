@@ -1,0 +1,275 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{float}
+
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{magenta},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    tabsize=2
+}
+
+\lstset{style=mystyle}
+
+\title{EE5176 Assignment 1: Basics of Imaging\\Demosaicing, White Balancing, and Tone Mapping}
+\author{Amritam Halder EE23B004}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+Raw images captured by digital cameras using a Color Filter Array (CFA) contain only one color value per pixel location. The process of reconstructing a full-color image from this undersampled data is known as demosaicing. This assignment explores various demosaicing approaches followed by color correction and enhancement techniques.
+
+The workflow consists of:
+1. Demosaicing raw Bayer data to reconstruct RGB images
+2. Applying white balancing to correct color casts
+3. Applying tone mapping to enhance dynamic range and contrast
+
+Two sets of raw images were processed: \texttt{rawimage1}, \texttt{rawimage2}, and \texttt{rawimage3} for general processing, and \texttt{kodim19} for detailed analysis with ground truth comparison.
+\\
+\\
+\textbf{Note:} The code and the outut is in the jupyter notebook "PA1\_EE23B004.ipynb"
+\section{Question 1: Demosaicing}
+
+\subsection{(a) Bilinear Interpolation}
+Bilinear interpolation was performed on \texttt{rawimage1.npy} using the CFA mask \texttt{bayer1.npy} (pattern: rggb). For each color channel (R, G, B), missing pixel values were interpolated using the \texttt{scipy.interpolate.RegularGridInterpolator} with method='linear' on the known samples of that channel.
+
+The implementation preserved known pixel values exactly while estimating missing values through linear interpolation of neighboring samples of the same color. The reconstructed image was displayed alongside the original raw Bayer mosaic for comparison.
+
+\vspace{0.5cm}
+\begin{lstlisting}[language=python]
+rgb_bilinear = reconstruct_rgb(rawimage1, bayer1, method="linear")
+\end{lstlisting}
+
+\subsection{(b) Bicubic Interpolation}
+Bicubic interpolation was applied using the same procedure but with method='cubic'. The reconstruction was compared to the bilinear result using Mean Squared Error (MSE) and Peak Signal-to-Noise Ratio (PSNR) metrics. A difference image was computed to visualize the discrepancies between the two methods.
+
+\vspace{0.5cm}
+\begin{lstlisting}[language=python]
+rgb_bicubic = reconstruct_rgb(rawimage1, bayer1, method="cubic")
+print_metrics("Bicubic versus bilinear", rgb_bicubic, rgb_bilinear)
+\end{lstlisting}
+
+\vspace{0.2cm}
+\noindent\textbf{Observation:} Bicubic interpolation generally produces smoother gradients and better preserves fine details in smooth regions, while showing larger differences near edges and high-frequency transitions compared to bilinear interpolation.
+
+\subsection{(c) OpenCV Demosaicing}
+OpenCV's built-in demosaicing function \texttt{cv2.cvtColor} with the flag \texttt{COLOR\_BayerRG2RGB} was used to demosaic \texttt{rawimage1}. The raw image was first converted to uint8 format before applying the color conversion.
+
+\vspace{0.5cm}
+\begin{lstlisting}[language=python]
+rawimage1_uint8 = as_uint8(rawimage1)
+rgb_opencv = cv2.cvtColor(rawimage1_uint8, cv2.COLOR_BayerRG2RGB).astype(np.float64)
+\end{lstlisting}
+
+\vspace{0.2cm}
+\noindent The OpenCV result was compared against both bilinear and bicubic reconstructions using the quantitative metrics.
+
+\subsection{(d) Interpolation Assumptions and Limitations}
+The interpolation methods rely on three key assumptions:
+\begin{enumerate}
+    \item Each color channel is locally spatially smooth, allowing nearby samples to represent missing values
+    \item Color and intensity do not change abruptly within an interpolation neighborhood
+    \item The CFA pattern and its alignment are known correctly, with no severe clipping or noise domination
+\end{enumerate}
+
+When these assumptions fail:
+\begin{itemize}
+    \item At color or intensity edges, channels may be interpolated from different sides, causing zippering artifacts and false colors
+    \item Linear interpolation tends to blur edges, while cubic interpolation can produce halos/ringing or overshoot
+    \item Incorrect CFA alignment leads to systematic color swapping throughout the image
+    \item Noise or clipping effects are propagated to missing pixel locations
+    \item Boundary pixels are less accurate due to lack of external samples (mitigated by clamping queries at image boundaries)
+\end{itemize}
+
+\subsection{(e) Kodim19 Bicubic Interpolation}
+The \texttt{kodim19\_raw.npy} image (with CFA pattern rggb and mask \texttt{kodim19\_cfa.npy}) was demosaiced using bicubic interpolation to reconstruct a full-color RGB image.
+
+\vspace{0.5cm}
+\begin{lstlisting}[language=python]
+rgb_kodim19_bicubic = reconstruct_rgb(kodim19_raw, kodim19_cfa, method="cubic")
+\end{lstlisting}
+
+\subsection{(f) YCrCb Chrominance Filtering}
+The bicubic reconstructed image was converted to YCrCb color space. Median filtering with a 3×3 kernel was applied separately to the Cr and Cb (chrominance) channels, while the Y (luminance) channel remained unchanged. The filtered image was then converted back to RGB.
+
+\vspace{0.5cm}
+\begin{lstlisting}[language=python]
+CHROMA_FILTER_SIZE = 3
+kodim19_ycrcb = cv2.cvtColor(kodim19_rgb_uint8, cv2.COLOR_RGB2YCrCb)
+kodim19_ycrcb_filtered = kodim19_ycrcb.copy()
+kodim19_ycrcb_filtered[:, :, 1] = cv2.medianBlur(kodim19_ycrcb[:, :, 1], CHROMA_FILTER_SIZE)
+kodim19_ycrcb_filtered[:, :, 2] = cv2.medianBlur(kodim19_ycrcb[:, :, 2], CHROMA_FILTER_SIZE)
+rgb_kodim19_filtered = cv2.cvtColor(kodim19_ycrcb_filtered, cv2.COLOR_YCrCb2RGB).astype(np.float64)
+\end{lstlisting}
+
+\vspace{0.2cm}
+\noindent\textbf{Justification for 3×3 filter:}
+\begin{itemize}
+    \item It is the smallest odd-sized window capable of removing isolated speckle-like noise
+    \item Larger windows would begin to blur genuine color transitions, causing \textit{color-edge bleeding} (smearing of color information across sharp edges)
+    \item The small window preserves edge sharpness in chrominance while suppressing noise, leaving luminance untouched to retain detail
+\end{itemize}
+
+\subsection{(g) Ground Truth Comparison}
+The demosaiced results from parts (e) and (f) were compared against the provided ground truth image \texttt{kodim19\_gt.png}. Quantitative metrics (MSE and PSNR) were computed, and qualitative assessment was performed through side-by-side visualization and error maps.
+
+\vspace{0.5cm}
+\begin{lstlisting}[language=python]
+print_metrics("Bicubic versus ground truth", rgb_kodim19_bicubic, gt_rgb)
+print_metrics("Chroma-filtered versus ground truth", rgb_kodim19_filtered, gt_rgb)
+\end{lstlisting}
+
+\vspace{0.2cm}
+\noindent\textbf{Observations:}
+\begin{itemize}
+    \item The bicubic reconstruction preserves fine detail but may exhibit false color artifacts near sharp edges due to independent channel interpolation
+    \item Chrominance filtering reduces isolated color speckles and may lower error in smooth regions
+    \item However, filtering can also soften or desaturate fine chromatic detail, making the numerical improvement image-dependent
+    \item Error maps show that differences are concentrated around edges and textured regions
+\end{itemize}
+
+\section{Question 2: White Balancing and Tone Mapping}
+
+Before applying white balancing and tone mapping, \texttt{rawimage2} and \texttt{rawimage3} were demosaiced using bilinear interpolation (reusing the demosaicing code from Question 1), as their CFA patterns are grbg and rggb respectively.
+
+\subsection{(a) Average Gray Scene Assumption}
+This method assumes that the average color of the entire scene is gray. For each demosaiced image:
+\begin{enumerate}
+    \item Compute the average RGB values across all pixels
+    \item Calculate gains as the inverse of the average values (normalized to preserve mean brightness)
+    \item Apply the gains to each color channel
+\end{enumerate}
+
+\vspace{0.5cm}
+\begin{lstlisting}[language=python]
+gains1 = compute_wb_gains_average(rgb1_demosaic)
+gains2 = compute_wb_gains_average(rgb2_demosaic)
+gains3 = compute_wb_gains_average(rgb3_demosaic)
+rgb1_wb_avg = apply_wb_gains(rgb1_demosaic, gains1)
+rgb2_wb_avg = apply_wb_gains(rgb2_demosaic, gains2)
+rgb3_wb_avg = apply_wb_gains(rgb3_demosaic, gains3)
+\end{lstlisting}
+
+\vspace{0.2cm}
+\noindent Results were displayed in a 2×3 grid showing original demosaiced images (top row) and white-balanced images (bottom row) for all three raw images.
+
+\subsection{(b) Specular Highlight Assumption}
+This method assumes that the brightest pixel in the image corresponds to a specular reflection and should therefore be white. Using the coordinates provided in the metadata:
+\begin{itemize}
+    \item rawimage1: (813, 829)
+    \item rawimage2: (279, 1164)
+    \item rawimage3: (674, 174)
+\end{itemize}
+
+For each image:
+\begin{enumerate}
+    \item Extract the RGB value at the specified coordinate
+    \item Compute gains such that this pixel becomes [1,1,1] after scaling (normalized to maintain average gain of 1)
+    \item Apply the gains to the entire image
+\end{enumerate}
+
+\vspace{0.5cm}
+\begin{lstlisting}[language=python]
+coord1 = (813, 829)  # From metadata
+gains1_spec = compute_wb_gains_from_image(rgb1_demosaic, coord1)
+rgb1_wb_spec = apply_wb_gains(rgb1_demosaic, gains1_spec)
+\end{lstlisting}
+
+\vspace{0.2cm}
+\noindent The same procedure was applied to rawimage2 and rawimage3 with their respective coordinates.
+
+\subsection{(c) Neutral Region Assumption}
+This method assumes that a specific known neutral (gray) region in the scene should appear gray in the final image. Using the neutral coordinates from metadata:
+\begin{itemize}
+    \item rawimage1: (434, 1999)
+    \item rawimage2: (714, 444)
+    \item rawimage3: (564, 1549)
+\end{itemize}
+
+The procedure is identical to the specular highlight method but uses the neutral region coordinates instead.
+
+\vspace{0.5cm}
+\begin{lstlisting}[language=python]
+coord1_neutral = (434, 1999)  # From metadata
+gains1_neutral = compute_wb_gains_from_image(rgb1_demosaic, coord1_neutral)
+rgb1_wb_neutral = apply_wb_gains(rgb1_demosaic, gains1_neutral)
+\end{lstlisting}
+
+\vspace{0.2cm}
+\noident Results for all three methods were displayed in 2×3 grids for visual comparison.
+
+\subsection{(d) Tone Mapping}
+Tone mapping was applied to the white-balanced images from the average gray method (Q2a) using two techniques:
+
+\subsubsection{Histogram Equalization}
+Applied independently to each channel (R, G, B) using \texttt{cv2.equalizeHist} to enhance contrast by spreading out the most frequent intensity values.
+
+\vspace{0.5cm}
+\begin{lstlisting}[language=python]
+def histogram_equalization(rgb_image):
+    b, g, r = cv2.split(rgb_image)
+    b_eq = cv2.equalizeHist(b)
+    g_eq = cv2.equalizeHist(g)
+    r_eq = cv2.equalizeHist(r)
+    return cv2.merge((b_eq, g_eq, r_eq))
+\end{lstlisting}
+
+\subsubsection{Gamma Correction}
+Applied with gamma values of 0.5, 0.7, and 0.9 using the formula:
+\[
+V_{out} = 255 \times \left(\frac{V_{in}}{255}\right)^{\gamma}
+\]
+
+\vspace{0.5cm}
+\begin{lstlisting}[language=python]
+def gamma_correction(rgb_image, gamma):
+    normalized = rgb_image.astype(np.float64) / 255.0
+    corrected = np.power(normalized, gamma)
+    return np.clip(corrected * 255.0, 0, 255).astype(np.uint8)
+\end{lstlisting}
+
+\vspace{0.2cm}
+\noindent Results were displayed in a 3×5 grid (three images × five processing methods: original WB, histogram equalization, gamma=0.5, gamma=0.7, gamma=0.9) for qualitative comparison.
+
+\section{References}
+The implementation was based on the assignment requirements and utilized only the permitted libraries:
+\begin{itemize}
+    \item NumPy for numerical operations
+    \item SciPy for interpolation
+    \item Matplotlib for visualization
+    \item PIL/Pillow for image loading
+    \item OpenCV for color space conversions and specific operations
+    \item Stack Exchange and Geeks for Geeks for different ideas on the implementation
+\end{itemize}
+
+\section{Self Declaration}
+I, Amritam Halder, swear on my honour that I have prepared and written the answers for this assignment and associated code by myself and have not copied from the internet, any LLM's output, or other students.
+\end{document}
